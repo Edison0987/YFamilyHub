@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Attachment,
@@ -9,8 +10,14 @@ import type {
   WorkflowOccurrence,
 } from "@/lib/types";
 
-/** The signed-in user's profile, or null if not signed in / no profile. */
-export async function getCurrentProfile(): Promise<Profile | null> {
+/**
+ * The signed-in user's profile, or null if not signed in / no profile.
+ *
+ * Wrapped in React's `cache()` so that calling it several times while rendering
+ * one request (e.g. in both the layout and the page) only does ONE network
+ * round-trip instead of repeating the auth + profile lookup each time.
+ */
+export const getCurrentProfile = cache(async (): Promise<Profile | null> => {
   const supabase = await createClient();
   const {
     data: { user },
@@ -19,7 +26,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
 
   const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   return (data as Profile) ?? null;
-}
+});
 
 /** All family members (small list — used to render author names/avatars). */
 export async function getProfiles(): Promise<Profile[]> {
@@ -87,55 +94,57 @@ export async function getThread(
 async function decorateMessages(messages: Message[]): Promise<MessageWithMeta[]> {
   const supabase = await createClient();
   const ids = messages.map((m) => m.id);
-
-  // Authors
   const authorIds = [...new Set(messages.map((m) => m.author_id).filter(Boolean))] as string[];
-  const profilesById = new Map<string, Profile>();
-  if (authorIds.length) {
-    const { data } = await supabase.from("profiles").select("*").in("id", authorIds);
-    (data as Profile[] | null)?.forEach((p) => profilesById.set(p.id, p));
-  }
-
-  // Attachments for these messages
-  const attByMessage = new Map<string, Attachment[]>();
-  if (ids.length) {
-    const { data } = await supabase.from("attachments").select("*").in("message_id", ids);
-    (data as Attachment[] | null)?.forEach((a) => {
-      const list = attByMessage.get(a.message_id) ?? [];
-      list.push(a);
-      attByMessage.set(a.message_id, list);
-    });
-  }
-
-  // Workflow occurrences (+ their workflow) for workflow-type messages
   const occIds = [
     ...new Set(messages.map((m) => m.workflow_occurrence_id).filter(Boolean)),
   ] as string[];
+
+  // Run the independent lookups in PARALLEL (one network round-trip each, but
+  // all at once) instead of awaiting them one after another.
+  const [authorsRes, attachmentsRes, occsRes, replyRes] = await Promise.all([
+    authorIds.length
+      ? supabase.from("profiles").select("*").in("id", authorIds)
+      : Promise.resolve({ data: [] as Profile[] }),
+    ids.length
+      ? supabase.from("attachments").select("*").in("message_id", ids)
+      : Promise.resolve({ data: [] as Attachment[] }),
+    occIds.length
+      ? supabase.from("workflow_occurrences").select("*").in("id", occIds)
+      : Promise.resolve({ data: [] as WorkflowOccurrence[] }),
+    ids.length
+      ? supabase.from("messages").select("parent_id").in("parent_id", ids)
+      : Promise.resolve({ data: [] as { parent_id: string }[] }),
+  ]);
+
+  // Authors
+  const profilesById = new Map<string, Profile>();
+  (authorsRes.data as Profile[] | null)?.forEach((p) => profilesById.set(p.id, p));
+
+  // Attachments grouped by message
+  const attByMessage = new Map<string, Attachment[]>();
+  (attachmentsRes.data as Attachment[] | null)?.forEach((a) => {
+    const list = attByMessage.get(a.message_id) ?? [];
+    list.push(a);
+    attByMessage.set(a.message_id, list);
+  });
+
+  // Workflow occurrences (+ their workflow). The workflows lookup depends on the
+  // occurrences result, so it follows the parallel batch above.
   const occById = new Map<string, WorkflowOccurrence & { workflow: Workflow | null }>();
-  if (occIds.length) {
-    const { data: occs } = await supabase
-      .from("workflow_occurrences")
-      .select("*")
-      .in("id", occIds);
-    const wfIds = [...new Set((occs as WorkflowOccurrence[] | null)?.map((o) => o.workflow_id) ?? [])];
+  const occs = (occsRes.data as WorkflowOccurrence[] | null) ?? [];
+  if (occs.length) {
+    const wfIds = [...new Set(occs.map((o) => o.workflow_id))];
     const wfById = new Map<string, Workflow>();
-    if (wfIds.length) {
-      const { data: wfs } = await supabase.from("workflows").select("*").in("id", wfIds);
-      (wfs as Workflow[] | null)?.forEach((w) => wfById.set(w.id, w));
-    }
-    (occs as WorkflowOccurrence[] | null)?.forEach((o) =>
-      occById.set(o.id, { ...o, workflow: wfById.get(o.workflow_id) ?? null }),
-    );
+    const { data: wfs } = await supabase.from("workflows").select("*").in("id", wfIds);
+    (wfs as Workflow[] | null)?.forEach((w) => wfById.set(w.id, w));
+    occs.forEach((o) => occById.set(o.id, { ...o, workflow: wfById.get(o.workflow_id) ?? null }));
   }
 
   // Reply counts (how many messages have each of these as a parent)
   const replyCount = new Map<string, number>();
-  if (ids.length) {
-    const { data } = await supabase.from("messages").select("parent_id").in("parent_id", ids);
-    (data as { parent_id: string }[] | null)?.forEach((r) => {
-      replyCount.set(r.parent_id, (replyCount.get(r.parent_id) ?? 0) + 1);
-    });
-  }
+  (replyRes.data as { parent_id: string }[] | null)?.forEach((r) => {
+    replyCount.set(r.parent_id, (replyCount.get(r.parent_id) ?? 0) + 1);
+  });
 
   return messages.map((m) => ({
     ...m,
