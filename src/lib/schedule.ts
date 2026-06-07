@@ -18,8 +18,11 @@ export type DueResult =
   | { due: false }
   | { due: true; occurrenceKey: string; scheduledFor: Date };
 
-// Number of hours after the scheduled time during which we will still create
-// the occurrence. This gives the hourly cron some slack (e.g. a missed run).
+// We create an occurrence when the workflow's MOST RECENT scheduled slot is
+// within this many hours of "now". 26h comfortably covers a once-per-day cron
+// (with a little slack), so each daily/weekly/monthly slot is caught exactly
+// once and never duplicated — the next day the slot is older than 26h and is
+// skipped. (With a more frequent cron it still works the same way.)
 const GRACE_HOURS = 26;
 
 function pad(n: number) {
@@ -69,36 +72,76 @@ export function isWorkflowDue(workflow: Workflow, now: Date = new Date()): DueRe
   const y = localNow.getFullYear();
   const mIdx = localNow.getMonth();
   const d = localNow.getDate();
-  const dow = localNow.getDay(); // 0=Sun..6=Sat
 
   switch (workflow.schedule_type) {
     case "daily": {
-      const scheduledFor = instantFor(y, mIdx, d, hh, mm, tz);
+      // Today's slot if it has already passed, otherwise yesterday's.
+      let slotY = y, slotM = mIdx, slotD = d;
+      let scheduledFor = instantFor(slotY, slotM, slotD, hh, mm, tz);
+      if (now < scheduledFor) {
+        const yest = new Date(localNow);
+        yest.setDate(yest.getDate() - 1);
+        slotY = yest.getFullYear();
+        slotM = yest.getMonth();
+        slotD = yest.getDate();
+        scheduledFor = instantFor(slotY, slotM, slotD, hh, mm, tz);
+      }
       if (withinGrace(scheduledFor, now)) {
-        return { due: true, occurrenceKey: `daily-${y}-${pad(mIdx + 1)}-${pad(d)}`, scheduledFor };
+        return {
+          due: true,
+          occurrenceKey: `daily-${slotY}-${pad(slotM + 1)}-${pad(slotD)}`,
+          scheduledFor,
+        };
       }
       return { due: false };
     }
 
     case "weekly": {
-      if (workflow.day_of_week === null || workflow.day_of_week !== dow) {
-        return { due: false };
-      }
-      const scheduledFor = instantFor(y, mIdx, d, hh, mm, tz);
-      if (withinGrace(scheduledFor, now)) {
-        return { due: true, occurrenceKey: `weekly-${y}-${pad(mIdx + 1)}-${pad(d)}`, scheduledFor };
+      if (workflow.day_of_week === null) return { due: false };
+      // Walk back up to 7 days to find the most recent matching weekday whose
+      // time-of-day has already passed.
+      for (let back = 0; back <= 7; back++) {
+        const day = new Date(localNow);
+        day.setDate(day.getDate() - back);
+        if (day.getDay() !== workflow.day_of_week) continue;
+        const scheduledFor = instantFor(
+          day.getFullYear(),
+          day.getMonth(),
+          day.getDate(),
+          hh,
+          mm,
+          tz,
+        );
+        if (now < scheduledFor) continue; // hasn't happened yet today; keep looking back
+        if (withinGrace(scheduledFor, now)) {
+          return {
+            due: true,
+            occurrenceKey: `weekly-${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`,
+            scheduledFor,
+          };
+        }
+        break;
       }
       return { due: false };
     }
 
     case "monthly": {
       if (workflow.day_of_month === null) return { due: false };
-      // Clamp e.g. "31" down to the last day of shorter months.
-      const effectiveDay = Math.min(workflow.day_of_month, daysInMonth(y, mIdx));
-      if (d !== effectiveDay) return { due: false };
-      const scheduledFor = instantFor(y, mIdx, d, hh, mm, tz);
+      // This month's slot (day clamped to month length) if passed, else last month's.
+      let slotY = y, slotM = mIdx;
+      let effectiveDay = Math.min(workflow.day_of_month, daysInMonth(slotY, slotM));
+      let scheduledFor = instantFor(slotY, slotM, effectiveDay, hh, mm, tz);
+      if (now < scheduledFor) {
+        slotM -= 1;
+        if (slotM < 0) {
+          slotM = 11;
+          slotY -= 1;
+        }
+        effectiveDay = Math.min(workflow.day_of_month, daysInMonth(slotY, slotM));
+        scheduledFor = instantFor(slotY, slotM, effectiveDay, hh, mm, tz);
+      }
       if (withinGrace(scheduledFor, now)) {
-        return { due: true, occurrenceKey: `monthly-${y}-${pad(mIdx + 1)}`, scheduledFor };
+        return { due: true, occurrenceKey: `monthly-${slotY}-${pad(slotM + 1)}`, scheduledFor };
       }
       return { due: false };
     }
