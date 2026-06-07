@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+  Family Hub — dark theme.
+  We define shadcn/ui-style design tokens as CSS variables, then expose them
+  to Tailwind v4 via @theme inline so utilities like `bg-background`,
+  `text-muted-foreground`, `border-border`, `bg-primary`, etc. all work.
+*/
+:root {
+  --background: #0b0d12;
+  --foreground: #e6e8ec;
+  --card: #14171f;
+  --card-foreground: #e6e8ec;
+  --muted: #1b1f29;
+  --muted-foreground: #9aa3b2;
+  --accent: #232838;
+  --accent-foreground: #e6e8ec;
+  --secondary: #1b1f29;
+  --secondary-foreground: #e6e8ec;
+  --primary: #4f7cff;
+  --primary-foreground: #ffffff;
+  --border: #262b38;
+  --input: #2a3040;
+  --ring: #4f7cff;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
