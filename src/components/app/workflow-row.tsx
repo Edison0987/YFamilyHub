@@ -2,15 +2,17 @@
 
 import { useTransition } from "react";
 import Link from "next/link";
-import { Pencil, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Pencil, Play, Trash2 } from "lucide-react";
 import type { Channel, Workflow } from "@/lib/types";
 import { describeSchedule } from "@/lib/schedule";
-import { deleteWorkflow, toggleWorkflowActive } from "@/lib/actions";
+import { deleteWorkflow, runWorkflowNow, toggleWorkflowActive } from "@/lib/actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
 export function WorkflowRow({ workflow, channel }: { workflow: Workflow; channel: Channel | undefined }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
 
   return (
@@ -31,6 +33,25 @@ export function WorkflowRow({ workflow, channel }: { workflow: Workflow; channel
       </div>
 
       <div className="flex shrink-0 items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={pending}
+          onClick={() =>
+            startTransition(async () => {
+              try {
+                const { channelId } = await runWorkflowNow(workflow.id);
+                // Jump to the channel so you can see the reminder appear.
+                router.push(`/channels/${channelId}`);
+              } catch (e) {
+                alert(e instanceof Error ? e.message : "Failed to run workflow.");
+              }
+            })
+          }
+        >
+          <Play className="h-4 w-4" />
+          Run now
+        </Button>
         <Switch
           checked={workflow.active}
           disabled={pending}

@@ -181,6 +181,53 @@ export async function updateWorkflow(id: string, formData: FormData) {
   redirect("/workflows");
 }
 
+/**
+ * Post a workflow reminder to its channel RIGHT NOW, for testing — without
+ * waiting for the schedule. Uses a unique "test-" occurrence key so it does NOT
+ * interfere with the real recurring schedule (the next real run still happens).
+ *
+ * Inserts via the service-role client because workflow-type messages bypass the
+ * normal RLS (same as the cron route does).
+ */
+export async function runWorkflowNow(workflowId: string) {
+  await requireAdmin();
+  const admin = createAdminClient();
+
+  const { data: wf } = await admin.from("workflows").select("*").eq("id", workflowId).single();
+  if (!wf) throw new Error("Workflow not found.");
+
+  const { data: occ, error: occErr } = await admin
+    .from("workflow_occurrences")
+    .insert({
+      workflow_id: wf.id,
+      occurrence_key: `test-${Date.now()}`,
+      scheduled_for: new Date().toISOString(),
+      status: "pending",
+    })
+    .select("id")
+    .single();
+  if (occErr) throw new Error(occErr.message);
+
+  const { error: msgErr } = await admin.from("messages").insert({
+    channel_id: wf.channel_id,
+    author_id: null,
+    body: wf.title,
+    type: "workflow",
+    workflow_occurrence_id: occ.id,
+  });
+  if (msgErr) throw new Error(msgErr.message);
+
+  await admin.from("workflow_logs").insert({
+    workflow_id: wf.id,
+    occurrence_id: occ.id,
+    status: "created",
+    detail: "Manual test run",
+  });
+
+  revalidatePath(`/channels/${wf.channel_id}`);
+  return { channelId: wf.channel_id as string };
+}
+
 export async function toggleWorkflowActive(id: string, active: boolean) {
   const { supabase } = await requireAdmin();
   const { error } = await supabase.from("workflows").update({ active }).eq("id", id);
