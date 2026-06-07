@@ -13,6 +13,7 @@ export function MessageComposer({
   currentUserId,
   placeholder = "Write a message…",
   onOptimisticSend,
+  onAfterSend,
 }: {
   channelId: string;
   parentId?: string | null;
@@ -21,6 +22,8 @@ export function MessageComposer({
   // When provided, the parent handles upload + send (used for instant,
   // optimistic rendering). The composer just clears the input immediately.
   onOptimisticSend?: (args: { body: string; files: File[] }) => void;
+  // Called after a successful direct send (non-optimistic path).
+  onAfterSend?: () => void;
 }) {
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -64,6 +67,7 @@ export function MessageComposer({
       await sendMessage({ channelId, parentId, body, attachments });
       setBody("");
       setFiles([]);
+      onAfterSend?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to send.");
     } finally {
