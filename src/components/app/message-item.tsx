@@ -13,7 +13,8 @@ export function MessageItem({
   profiles,
   onOpenThread,
 }: {
-  message: MessageWithMeta;
+  // The optional pending/failed flags come from optimistic (not-yet-confirmed) sends.
+  message: MessageWithMeta & { pending?: boolean; failed?: boolean };
   currentProfile: Profile;
   profiles: Profile[];
   onOpenThread: (id: string) => void;
@@ -33,12 +34,19 @@ export function MessageItem({
   const authorName = message.author?.full_name ?? "Unknown";
 
   return (
-    <div className="group flex gap-3 px-4 py-2 hover:bg-accent/30">
+    <div
+      className={`group flex gap-3 px-4 py-2 hover:bg-accent/30 ${
+        message.pending ? "opacity-60" : ""
+      }`}
+    >
       <Avatar name={authorName} id={message.author_id ?? message.id} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="font-semibold">{authorName}</span>
-          <span className="text-xs text-muted-foreground">{formatTime(message.created_at)}</span>
+          <span className="text-xs text-muted-foreground">
+            {message.pending ? "Sending…" : message.failed ? "" : formatTime(message.created_at)}
+          </span>
+          {message.failed ? <span className="text-xs text-red-400">Failed to send</span> : null}
         </div>
 
         {message.body ? (
@@ -53,15 +61,17 @@ export function MessageItem({
           </div>
         ) : null}
 
-        <button
-          onClick={() => onOpenThread(message.id)}
-          className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <MessageSquare className="h-3.5 w-3.5" />
-          {message.reply_count > 0
-            ? `${message.reply_count} ${message.reply_count === 1 ? "reply" : "replies"}`
-            : "Reply"}
-        </button>
+        {!message.pending && !message.failed ? (
+          <button
+            onClick={() => onOpenThread(message.id)}
+            className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            {message.reply_count > 0
+              ? `${message.reply_count} ${message.reply_count === 1 ? "reply" : "replies"}`
+              : "Reply"}
+          </button>
+        ) : null}
       </div>
     </div>
   );

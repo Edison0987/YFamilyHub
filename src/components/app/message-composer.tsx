@@ -12,11 +12,15 @@ export function MessageComposer({
   parentId = null,
   currentUserId,
   placeholder = "Write a message…",
+  onOptimisticSend,
 }: {
   channelId: string;
   parentId?: string | null;
   currentUserId: string;
   placeholder?: string;
+  // When provided, the parent handles upload + send (used for instant,
+  // optimistic rendering). The composer just clears the input immediately.
+  onOptimisticSend?: (args: { body: string; files: File[] }) => void;
 }) {
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);
@@ -36,6 +40,18 @@ export function MessageComposer({
   async function submit() {
     if (busy) return;
     if (!body.trim() && files.length === 0) return;
+
+    // Optimistic path: hand off to the parent and clear the input instantly,
+    // so the message shows up immediately (like Messenger).
+    if (onOptimisticSend) {
+      onOptimisticSend({ body, files });
+      setBody("");
+      setFiles([]);
+      setError(null);
+      return;
+    }
+
+    // Direct path (used by the thread reply box): upload + send, then clear.
     setBusy(true);
     setError(null);
     try {
