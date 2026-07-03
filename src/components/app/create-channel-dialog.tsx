@@ -57,6 +57,15 @@ export function CreateChannelDialog() {
             <Label htmlFor="description">Description (optional)</Label>
             <Textarea id="description" name="description" placeholder="What's this channel about?" />
           </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="lock_code">Access code (optional)</Label>
+            <Input
+              id="lock_code"
+              name="lock_code"
+              placeholder="Leave blank for no code"
+              autoComplete="off"
+            />
+          </div>
           {error ? <p className="text-sm text-red-400">{error}</p> : null}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={() => setOpen(false)}>

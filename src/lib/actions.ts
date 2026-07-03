@@ -1,10 +1,15 @@
 "use server";
 
+import { createHash } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
-import { getThread } from "@/lib/data";
-import type { Role, ScheduleType } from "@/lib/types";
+import { getChannelMessages, getProfiles, getThread } from "@/lib/data";
+import type { Channel, Role, ScheduleType } from "@/lib/types";
+
+function hashCode(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
 
 // Server action wrapper so client components can (re)load a thread on demand.
 export async function loadThread(rootId: string) {
@@ -44,11 +49,17 @@ export async function createChannel(formData: FormData) {
   const { supabase, user } = await requireAdmin();
   const name = String(formData.get("name") || "").trim();
   const description = String(formData.get("description") || "").trim() || null;
+  const lockCode = String(formData.get("lock_code") || "").trim();
   if (!name) throw new Error("Channel name is required.");
 
   const { data, error } = await supabase
     .from("channels")
-    .insert({ name, description, created_by: user.id })
+    .insert({
+      name,
+      description,
+      created_by: user.id,
+      lock_code_hash: lockCode ? hashCode(lockCode) : null,
+    })
     .select("id")
     .single();
   if (error) throw new Error(error.message);
@@ -58,6 +69,46 @@ export async function createChannel(formData: FormData) {
 
   revalidatePath("/", "layout");
   redirect(`/channels/${data.id}`);
+}
+
+/** Admin-only: set, change, or remove (empty code) a channel's access code. */
+export async function setChannelLock(channelId: string, code: string) {
+  const { supabase } = await requireAdmin();
+  const trimmed = code.trim();
+  const lock_code_hash = trimmed ? hashCode(trimmed) : null;
+
+  const { error } = await supabase.from("channels").update({ lock_code_hash }).eq("id", channelId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/", "layout");
+  return { ok: true, locked: !!lock_code_hash };
+}
+
+/**
+ * Verifies a locked channel's access code and, only on success, loads and
+ * returns its messages + profiles. The code check and the data fetch happen
+ * together so the channel's contents are never sent to the browser before
+ * the code is confirmed correct.
+ */
+export async function unlockChannel(channelId: string, code: string) {
+  const { supabase } = await requireUser();
+
+  const { data: row, error } = await supabase
+    .from("channels")
+    .select("*")
+    .eq("id", channelId)
+    .single();
+  if (error || !row) throw new Error("Channel not found.");
+
+  if (row.lock_code_hash && hashCode(code.trim()) !== row.lock_code_hash) {
+    throw new Error("Incorrect code.");
+  }
+
+  const { lock_code_hash: _hash, ...rest } = row;
+  const channel: Channel = { ...rest, lock_code_hash: null };
+
+  const [messages, profiles] = await Promise.all([getChannelMessages(channelId), getProfiles()]);
+  return { channel, messages, profiles };
 }
 
 // ---------------------------------------------------------------------------

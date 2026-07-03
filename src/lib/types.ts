@@ -18,6 +18,7 @@ export type Channel = {
   description: string | null;
   created_by: string | null;
   created_at: string;
+  lock_code_hash: string | null;
 };
 
 export type ScheduleType = "daily" | "weekly" | "monthly" | "once" | "cron";

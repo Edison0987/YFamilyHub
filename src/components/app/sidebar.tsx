@@ -2,13 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Hash, Repeat, UserPlus, LogOut } from "lucide-react";
+import { Hash, Lock, Repeat, UserPlus, LogOut } from "lucide-react";
 import type { Channel, Profile } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { signOut } from "@/lib/actions";
 import { CreateChannelDialog } from "@/components/app/create-channel-dialog";
+import { ChannelLockDialog } from "@/components/app/channel-lock-dialog";
 
-export function Sidebar({ profile, channels }: { profile: Profile; channels: Channel[] }) {
+// Sidebar never receives the raw lock_code_hash — just whether it's locked.
+type ChannelRow = Omit<Channel, "lock_code_hash"> & { locked: boolean };
+
+export function Sidebar({ profile, channels }: { profile: Profile; channels: ChannelRow[] }) {
   const pathname = usePathname();
   const isAdmin = profile.role === "admin";
 
@@ -43,19 +47,27 @@ export function Sidebar({ profile, channels }: { profile: Profile; channels: Cha
               const href = `/channels/${c.id}`;
               const active = pathname === href;
               return (
-                <Link
-                  key={c.id}
-                  href={href}
-                  className={cn(
-                    "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                    active
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                >
-                  <Hash className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{c.name}</span>
-                </Link>
+                <div key={c.id} className="group flex items-center">
+                  <Link
+                    href={href}
+                    className={cn(
+                      "flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
+                      active
+                        ? "bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    {c.locked ? (
+                      <Lock className="h-4 w-4 shrink-0" />
+                    ) : (
+                      <Hash className="h-4 w-4 shrink-0" />
+                    )}
+                    <span className="truncate">{c.name}</span>
+                  </Link>
+                  {isAdmin ? (
+                    <ChannelLockDialog channelId={c.id} channelName={c.name} locked={c.locked} />
+                  ) : null}
+                </div>
               );
             })
           )}

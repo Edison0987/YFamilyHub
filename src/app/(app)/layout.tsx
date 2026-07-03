@@ -7,7 +7,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const profile = await getCurrentProfile();
   if (!profile) redirect("/login");
 
-  const channels = await getChannels();
+  // Strip the lock-code hash before it ever reaches the client — the sidebar
+  // only needs to know whether a channel IS locked, not the hash itself.
+  const channels = (await getChannels()).map(({ lock_code_hash, ...c }) => ({
+    ...c,
+    locked: !!lock_code_hash,
+  }));
 
   return (
     <div className="flex h-screen w-full overflow-hidden">

@@ -31,12 +31,16 @@ create table if not exists public.profiles (
 -- 2. CHANNELS
 -- -----------------------------------------------------------------------------
 create table if not exists public.channels (
-  id          uuid primary key default gen_random_uuid(),
-  name        text not null,
-  description text,
-  created_by  uuid references public.profiles (id) on delete set null,
-  created_at  timestamptz not null default now()
+  id             uuid primary key default gen_random_uuid(),
+  name           text not null,
+  description    text,
+  created_by     uuid references public.profiles (id) on delete set null,
+  created_at     timestamptz not null default now(),
+  lock_code_hash text     -- sha256 hex of an access code; null = not locked
 );
+
+-- Safe to re-run on a database created before this column existed:
+alter table public.channels add column if not exists lock_code_hash text;
 
 -- Optional explicit membership (kept for future private channels).
 -- In this MVP every family member can see every channel.
