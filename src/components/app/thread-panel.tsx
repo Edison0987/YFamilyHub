@@ -54,6 +54,22 @@ export function ThreadPanel({
     setLocalVersion((v) => v + 1);
   }, []);
 
+  // Local patch/removal after edit / unsend / "delete for me" on a root or reply.
+  const handleMessageChange = useCallback((id: string, patch: Partial<MessageWithMeta>) => {
+    setRoot((prev) => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+    setReplies((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
+  const handleMessageRemove = useCallback(
+    (id: string) => {
+      if (root?.id === id) {
+        onClose();
+        return;
+      }
+      setReplies((prev) => prev.filter((m) => m.id !== id));
+    },
+    [root, onClose],
+  );
+
   // A no-op for thread items: nested threads aren't supported in this MVP.
   const noop = () => {};
 
@@ -77,6 +93,8 @@ export function ThreadPanel({
                 currentProfile={currentProfile}
                 profiles={profiles}
                 onOpenThread={noop}
+                onMessageChange={handleMessageChange}
+                onMessageRemove={handleMessageRemove}
               />
             ) : null}
 
@@ -91,6 +109,8 @@ export function ThreadPanel({
                 currentProfile={currentProfile}
                 profiles={profiles}
                 onOpenThread={noop}
+                onMessageChange={handleMessageChange}
+                onMessageRemove={handleMessageRemove}
               />
             ))}
           </>

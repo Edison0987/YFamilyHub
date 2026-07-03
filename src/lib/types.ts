@@ -75,6 +75,8 @@ export type Message = {
   type: MessageType;
   workflow_occurrence_id: string | null;
   created_at: string;
+  edited_at: string | null;
+  deleted_at: string | null;
 };
 
 // A message joined with the data the UI needs to render it.

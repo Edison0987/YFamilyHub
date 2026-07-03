@@ -93,6 +93,8 @@ export function ChannelView({
         type: "user",
         workflow_occurrence_id: null,
         created_at: new Date().toISOString(),
+        edited_at: null,
+        deleted_at: null,
         author: currentProfile,
         attachments: [],
         occurrence: null,
@@ -133,6 +135,15 @@ export function ChannelView({
     [channel.id, currentProfile],
   );
 
+  // Local patch/removal after edit / unsend / "delete for me" — instant feedback
+  // without waiting for the realtime round-trip.
+  const handleMessageChange = useCallback((id: string, patch: Partial<LocalMessage>) => {
+    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, ...patch } : m)));
+  }, []);
+  const handleMessageRemove = useCallback((id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }, []);
+
   return (
     <div className="flex h-full min-w-0 flex-1">
       {/* Main channel column */}
@@ -160,6 +171,8 @@ export function ChannelView({
                 currentProfile={currentProfile}
                 profiles={profiles}
                 onOpenThread={setThreadRootId}
+                onMessageChange={handleMessageChange}
+                onMessageRemove={handleMessageRemove}
               />
             ))
           )}

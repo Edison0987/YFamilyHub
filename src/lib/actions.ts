@@ -107,6 +107,70 @@ export async function sendMessage(args: {
   return { id: message.id as string };
 }
 
+/** Edit your own message body. No time limit, but only the sender may edit. */
+export async function editMessage(messageId: string, body: string) {
+  const { supabase, user } = await requireUser();
+  const trimmed = body.trim();
+  if (!trimmed) throw new Error("Message cannot be empty.");
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("messages")
+    .select("author_id, channel_id, deleted_at")
+    .eq("id", messageId)
+    .single();
+  if (fetchErr || !existing) throw new Error("Message not found.");
+  if (existing.author_id !== user.id) throw new Error("You can only edit your own messages.");
+  if (existing.deleted_at) throw new Error("Cannot edit a deleted message.");
+
+  const { error } = await supabase
+    .from("messages")
+    .update({ body: trimmed, edited_at: new Date().toISOString() })
+    .eq("id", messageId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/channels/${existing.channel_id}`);
+  return { ok: true };
+}
+
+/**
+ * "Unsend" — delete for everyone. Only the original sender may do this.
+ * Leaves a "[deleted]" placeholder row (and drops its attachments) rather than
+ * hard-deleting, so reply threads under it stay intact.
+ */
+export async function unsendMessage(messageId: string) {
+  const { supabase, user } = await requireUser();
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("messages")
+    .select("author_id, channel_id")
+    .eq("id", messageId)
+    .single();
+  if (fetchErr || !existing) throw new Error("Message not found.");
+  if (existing.author_id !== user.id) throw new Error("You can only unsend your own messages.");
+
+  await supabase.from("attachments").delete().eq("message_id", messageId);
+
+  const { error } = await supabase
+    .from("messages")
+    .update({ body: null, deleted_at: new Date().toISOString() })
+    .eq("id", messageId);
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/channels/${existing.channel_id}`);
+  return { ok: true };
+}
+
+/** "Delete for me" — hide a message from just the current viewer. */
+export async function hideMessageForMe(messageId: string) {
+  const { supabase, user } = await requireUser();
+  const { error } = await supabase
+    .from("message_hides")
+    .upsert({ message_id: messageId, user_id: user.id }, { onConflict: "message_id,user_id" });
+  if (error) throw new Error(error.message);
+  revalidatePath("/", "layout");
+  return { ok: true };
+}
+
 // ---------------------------------------------------------------------------
 // Workflow DONE button (per-occurrence status)
 // ---------------------------------------------------------------------------

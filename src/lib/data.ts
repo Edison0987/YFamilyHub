@@ -57,17 +57,33 @@ export async function getChannelMessages(channelId: string): Promise<MessageWith
   const supabase = await createClient();
 
   // 1. Root messages (replies have a parent_id and are loaded in the thread panel).
-  const { data: rawMessages } = await supabase
+  let query = supabase
     .from("messages")
     .select("*")
     .eq("channel_id", channelId)
     .is("parent_id", null)
     .order("created_at");
 
+  const hiddenIds = await getHiddenMessageIds();
+  if (hiddenIds.length) query = query.not("id", "in", `(${hiddenIds.join(",")})`);
+
+  const { data: rawMessages } = await query;
+
   const messages = (rawMessages as Message[]) ?? [];
   if (messages.length === 0) return [];
 
   return decorateMessages(messages);
+}
+
+/** IDs of messages the current viewer has hidden ("delete for me"). */
+async function getHiddenMessageIds(): Promise<string[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data } = await supabase.from("message_hides").select("message_id").eq("user_id", user.id);
+  return (data as { message_id: string }[] | null)?.map((r) => r.message_id) ?? [];
 }
 
 /** Load a single root message plus all of its thread replies. */
@@ -79,11 +95,10 @@ export async function getThread(
   const { data: rootRaw } = await supabase.from("messages").select("*").eq("id", rootId).single();
   if (!rootRaw) return null;
 
-  const { data: repliesRaw } = await supabase
-    .from("messages")
-    .select("*")
-    .eq("parent_id", rootId)
-    .order("created_at");
+  let repliesQuery = supabase.from("messages").select("*").eq("parent_id", rootId).order("created_at");
+  const hiddenIds = await getHiddenMessageIds();
+  if (hiddenIds.length) repliesQuery = repliesQuery.not("id", "in", `(${hiddenIds.join(",")})`);
+  const { data: repliesRaw } = await repliesQuery;
 
   const [root] = await decorateMessages([rootRaw as Message]);
   const replies = await decorateMessages((repliesRaw as Message[]) ?? []);

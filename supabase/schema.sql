@@ -99,11 +99,27 @@ create table if not exists public.messages (
   body                   text,
   type                   text not null default 'user' check (type in ('user', 'workflow')),
   workflow_occurrence_id uuid references public.workflow_occurrences (id) on delete cascade,
-  created_at             timestamptz not null default now()
+  created_at             timestamptz not null default now(),
+  edited_at              timestamptz,   -- set when the sender edits the body
+  deleted_at             timestamptz    -- set when the sender "unsends" (delete for everyone)
 );
+
+-- Safe to re-run on a database created before these columns existed:
+alter table public.messages add column if not exists edited_at  timestamptz;
+alter table public.messages add column if not exists deleted_at timestamptz;
 
 create index if not exists messages_channel_idx on public.messages (channel_id, created_at);
 create index if not exists messages_parent_idx  on public.messages (parent_id);
+
+-- -----------------------------------------------------------------------------
+-- 5b. MESSAGE HIDES  ("delete for me" — hides a message from just one viewer)
+-- -----------------------------------------------------------------------------
+create table if not exists public.message_hides (
+  message_id uuid not null references public.messages (id) on delete cascade,
+  user_id    uuid not null references public.profiles (id) on delete cascade,
+  hidden_at  timestamptz not null default now(),
+  primary key (message_id, user_id)
+);
 
 -- -----------------------------------------------------------------------------
 -- 6. ATTACHMENTS  (files/images linked to any message — incl. replies & workflow)
@@ -183,6 +199,7 @@ alter table public.channel_members      enable row level security;
 alter table public.workflows            enable row level security;
 alter table public.workflow_occurrences enable row level security;
 alter table public.messages             enable row level security;
+alter table public.message_hides        enable row level security;
 alter table public.attachments          enable row level security;
 alter table public.workflow_logs        enable row level security;
 
@@ -238,6 +255,14 @@ create policy "messages modify" on public.messages for update
 drop policy if exists "messages delete" on public.messages;
 create policy "messages delete" on public.messages for delete
   using (author_id = auth.uid() or public.is_admin());
+
+-- ---- message_hides (each family member manages only their own hidden list) --
+drop policy if exists "hides read"   on public.message_hides;
+drop policy if exists "hides insert" on public.message_hides;
+drop policy if exists "hides delete" on public.message_hides;
+create policy "hides read"   on public.message_hides for select using (user_id = auth.uid());
+create policy "hides insert" on public.message_hides for insert with check (user_id = auth.uid());
+create policy "hides delete" on public.message_hides for delete using (user_id = auth.uid());
 
 -- ---- attachments ------------------------------------------------------------
 drop policy if exists "attachments read"   on public.attachments;
