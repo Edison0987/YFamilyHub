@@ -40,6 +40,24 @@ export function MessageComposer({
     setFiles((prev) => prev.filter((_, i) => i !== idx));
   }
 
+  // Lets you paste a screenshot (or any copied image) straight from the
+  // clipboard, the same way Messenger/Slack do — no need to save it as a
+  // file first.
+  function onPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const images = Array.from(e.clipboardData.items)
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (images.length === 0) return;
+
+    e.preventDefault();
+    const named = images.map(
+      (f, i) =>
+        new File([f], f.name || `pasted-image-${Date.now()}-${i}.png`, { type: f.type }),
+    );
+    setFiles((prev) => [...prev, ...named]);
+  }
+
   async function submit() {
     if (busy) return;
     if (!body.trim() && files.length === 0) return;
@@ -122,6 +140,7 @@ export function MessageComposer({
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           placeholder={placeholder}
           rows={1}
           className="max-h-40 min-h-[40px] flex-1 resize-none"
